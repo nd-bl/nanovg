@@ -2480,7 +2480,9 @@ int nvgAddFallbackFontId(NVGcontext* ctx, int baseFont, int fallbackFont)
 
 void nvgResetFallbackFontsId(NVGcontext* ctx, int baseFont)
 {
+#ifdef fonsResetFallbackFont
 	fonsResetFallbackFont(ctx->fs, baseFont);
+#endif
 }
 
 int nvgAddFallbackFont(NVGcontext* ctx, const char* baseFont, const char* fallbackFont)
