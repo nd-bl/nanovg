@@ -19,6 +19,9 @@
 #ifndef NANOVG_H
 #define NANOVG_H
 
+#define BLUELAB_COLORMAP 1
+#define BLUELAB_RENDER_QUAD 1
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -136,12 +139,15 @@ struct NVGtextRow {
 typedef struct NVGtextRow NVGtextRow;
 
 enum NVGimageFlags {
-    NVG_IMAGE_GENERATE_MIPMAPS	= 1<<0,     // Generate mipmaps during creation of the image.
+	NVG_IMAGE_GENERATE_MIPMAPS	= 1<<0,		// Generate mipmaps during creation of the image.
 	NVG_IMAGE_REPEATX			= 1<<1,		// Repeat image in X direction.
 	NVG_IMAGE_REPEATY			= 1<<2,		// Repeat image in Y direction.
 	NVG_IMAGE_FLIPY				= 1<<3,		// Flips (inverses) image in Y direction when rendered.
 	NVG_IMAGE_PREMULTIPLIED		= 1<<4,		// Image data has premultiplied alpha.
 	NVG_IMAGE_NEAREST			= 1<<5,		// Image interpolation is Nearest instead Linear
+#if BLUELAB_COLORMAP
+    NVG_IMAGE_ONE_FLOAT_FORMAT  = 1<<6
+#endif
 };
 
 // Begin drawing a new frame
@@ -153,6 +159,7 @@ enum NVGimageFlags {
 // frame buffer size. In that case you would set windowWidth/Height to the window size
 // devicePixelRatio to: frameBufferWidth / windowWidth.
 void nvgBeginFrame(NVGcontext* ctx, float windowWidth, float windowHeight, float devicePixelRatio);
+void nvgBeginFrameEx(NVGcontext* ctx, float windowWidth, float windowHeight, float devicePixelRatio, int reset);
 
 // Cancels drawing the current frame.
 void nvgCancelFrame(NVGcontext* ctx);
@@ -388,6 +395,9 @@ void nvgImageSize(NVGcontext* ctx, int image, int* w, int* h);
 // Deletes created image.
 void nvgDeleteImage(NVGcontext* ctx, int image);
 
+// Deletes font's assets for font's name.
+void nvgDeleteFontByName(NVGcontext* ctx, const char* name);
+
 //
 // Paints
 //
@@ -414,11 +424,14 @@ NVGpaint nvgBoxGradient(NVGcontext* ctx, float x, float y, float w, float h,
 NVGpaint nvgRadialGradient(NVGcontext* ctx, float cx, float cy, float inr, float outr,
 						   NVGcolor icol, NVGcolor ocol);
 
-// Creates and returns an image pattern. Parameters (ox,oy) specify the left-top location of the image pattern,
+// Creates and returns an image patter. Parameters (ox,oy) specify the left-top location of the image pattern,
 // (ex,ey) the size of one image, angle rotation around the top-left corner, image is handle to the image to render.
 // The gradient is transformed by the current transform when it is passed to nvgFillPaint() or nvgStrokePaint().
 NVGpaint nvgImagePattern(NVGcontext* ctx, float ox, float oy, float ex, float ey,
 						 float angle, int image, float alpha);
+
+// get xfrom data
+void nvgGetStateXfrom(NVGcontext* ctx, float* xform);
 
 //
 // Scissoring
@@ -438,8 +451,12 @@ void nvgScissor(NVGcontext* ctx, float x, float y, float w, float h);
 // transform space. The resulting shape is always rectangle.
 void nvgIntersectScissor(NVGcontext* ctx, float x, float y, float w, float h);
 
+void nvgIntersectScissor_ex(NVGcontext* ctx, float* x, float* y, float* w, float* h);
+
 // Reset and disables scissoring.
 void nvgResetScissor(NVGcontext* ctx);
+
+void nvgIntersectScissorForOtherRect(NVGcontext* ctx, float x, float y, float w, float h, float dx, float dy, float dw, float dh);
 
 //
 // Paths
@@ -546,15 +563,21 @@ void nvgStroke(NVGcontext* ctx);
 // Returns handle to the font.
 int nvgCreateFont(NVGcontext* ctx, const char* name, const char* filename);
 
-// fontIndex specifies which font face to load from a .ttf/.ttc file.
-int nvgCreateFontAtIndex(NVGcontext* ctx, const char* name, const char* filename, const int fontIndex);
+// Creates font by loading it from the disk from specified file name, loading a specific face by index.
+// Returns handle to the font.
+// awtk
+//int nvgCreateFontFace(NVGcontext* ctx, const char* name, const char* filename, int faceIdx);
+int nvgCreateFontFace(NVGcontext* ctx, const char* name, const char* filename, int faceIdx);
 
 // Creates font by loading it from the specified memory chunk.
 // Returns handle to the font.
 int nvgCreateFontMem(NVGcontext* ctx, const char* name, unsigned char* data, int ndata, int freeData);
 
-// fontIndex specifies which font face to load from a .ttf/.ttc file.
-int nvgCreateFontMemAtIndex(NVGcontext* ctx, const char* name, unsigned char* data, int ndata, int freeData, const int fontIndex);
+// Creates font by loading it from the specified memory chunk, loading a specific face by index.
+// Returns handle to the font.
+// awtk
+//int nvgCreateFontFaceMem(NVGcontext* ctx, const char* name, unsigned char* data, int ndata, int faceIdx, int freeData);
+int nvgCreateFontFaceMem(NVGcontext* ctx, const char* name, unsigned char* data, int ndata, int faceIdx, int freeData);
 
 // Finds a loaded font of specified name, and returns handle to it, or -1 if the font is not found.
 int nvgFindFont(NVGcontext* ctx, const char* name);
@@ -660,17 +683,32 @@ typedef struct NVGpath NVGpath;
 struct NVGparams {
 	void* userPtr;
 	int edgeAntiAlias;
+
+        void (*setLineCap)(void* uptr, int lineCap);
+	void (*setLineJoin)(void* uptr, int lineJoin);
+
+        int (*clearCache)(void* uptr);
 	int (*renderCreate)(void* uptr);
-	int (*renderCreateTexture)(void* uptr, int type, int w, int h, int imageFlags, const unsigned char* data);
+        int (*findTexture)(void* uptr, const void* data);
+	void (*setStateXfrom)(void* uptr, float* xform);
+	int (*renderCreateTexture)(void* uptr, int type, int w, int h, int stride, int imageFlags, const unsigned char* data);
+        //int (*renderCreateTexture)(void* uptr, int type, int w, int h, int imageFlags, const unsigned char* data);
 	int (*renderDeleteTexture)(void* uptr, int image);
 	int (*renderUpdateTexture)(void* uptr, int image, int x, int y, int w, int h, const unsigned char* data);
 	int (*renderGetTextureSize)(void* uptr, int image, int* w, int* h);
 	void (*renderViewport)(void* uptr, float width, float height, float devicePixelRatio);
 	void (*renderCancel)(void* uptr);
 	void (*renderFlush)(void* uptr);
+
+#if !BLUELAB_COLORMAP
 	void (*renderFill)(void* uptr, NVGpaint* paint, NVGcompositeOperationState compositeOperation, NVGscissor* scissor, float fringe, const float* bounds, const NVGpath* paths, int npaths);
+#else
+    void (*renderFill)(void* uptr, NVGpaint* paint, NVGcompositeOperationState compositeOperation, NVGscissor* scissor, float fringe, const float* bounds, const NVGpath* paths, int npaths, int colormapId);
+#endif
+
 	void (*renderStroke)(void* uptr, NVGpaint* paint, NVGcompositeOperationState compositeOperation, NVGscissor* scissor, float fringe, float strokeWidth, const NVGpath* paths, int npaths);
-	void (*renderTriangles)(void* uptr, NVGpaint* paint, NVGcompositeOperationState compositeOperation, NVGscissor* scissor, const NVGvertex* verts, int nverts, float fringe);
+        void (*renderTriangles)(void* uptr, NVGpaint* paint, NVGcompositeOperationState compositeOperation, NVGscissor* scissor, const NVGvertex* verts, int nverts, float fringe);
+      //void (*renderTriangles)(void* uptr, NVGpaint* paint, NVGcompositeOperationState compositeOperation, NVGscissor* scissor, const NVGvertex* verts, int nverts);
 	void (*renderDelete)(void* uptr);
 };
 typedef struct NVGparams NVGparams;
@@ -684,11 +722,29 @@ NVGparams* nvgInternalParams(NVGcontext* ctx);
 // Debug function to dump cached path data.
 void nvgDebugDumpPathCache(NVGcontext* ctx);
 
+#if BLUELAB_COLORMAP
+// Set colormap
+void nvgSetColormap(NVGcontext* ctx, int colormapId);
+#endif
+
+#if BLUELAB_RENDER_QUAD
+  // Render a textured quad
+  void nvgQuad(NVGcontext* ctx, float corners[4][2], int image);
+
+  // Renders several quads at the same time (optimized)
+  void nvgQuads(NVGcontext* ctx, float *centers, int nQuads, float size, int image);
+#endif
+
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
 
 #define NVG_NOTUSED(v) for (;;) { (void)(1 ? (void)0 : ( (void)(v) ) ); break; }
+
+NVGparams* nvgGetParams(NVGcontext* ctx);
+int nvgCreateImageRaw(NVGcontext* ctx, int w, int h, int format, int stride, int imageFlags, const unsigned char* data);
+int nvgFindTextureRaw(NVGcontext* ctx, const void* data);
+int nvgClearCache(NVGcontext* ctx);
 
 #ifdef __cplusplus
 }

@@ -18,6 +18,9 @@
 #ifndef NANOVG_GL_UTILS_H
 #define NANOVG_GL_UTILS_H
 
+#define BLUELAB_CHANGES 1
+#define BL_FRAMEBUFFER_PATCH 1
+
 struct NVGLUframebuffer {
 	NVGcontext* ctx;
 	GLuint fbo;
@@ -29,6 +32,10 @@ typedef struct NVGLUframebuffer NVGLUframebuffer;
 
 // Helper function to create GL frame buffer to render to.
 void nvgluBindFramebuffer(NVGLUframebuffer* fb);
+#if BL_FRAMEBUFFER_PATCH
+void nvgluBindFramebuffer2(NVGLUframebuffer* fb);
+#endif
+
 NVGLUframebuffer* nvgluCreateFramebuffer(NVGcontext* ctx, int w, int h, int imageFlags);
 void nvgluDeleteFramebuffer(NVGLUframebuffer* fb);
 
@@ -47,7 +54,46 @@ void nvgluDeleteFramebuffer(NVGLUframebuffer* fb);
 #	endif
 #endif
 
+#if BLUELAB_CHANGES
+
+#if 0 // Disabled for iPlug2 / Windows
+
+#ifdef _WIN32
+#include <GL/glext.h>
+#define NANOVG_FBO_VALID 1
+
+#define glGenFramebuffers glGenFramebuffersEXT
+#define glBindFramebuffer glBindFramebufferEXT
+#define glFramebufferTexture2D glFramebufferTexture2DEXT
+#define glFramebufferRenderbuffer glFramebufferRenderbufferEXT
+#define glCheckFramebufferStatus glCheckFramebufferStatusEXT
+#define glDeleteFramebuffers glDeleteFramebuffersEXT
+
+#define glGenRenderbuffers glGenRenderbuffersEXT
+#define glBindRenderbuffer glBindRenderbufferEXT
+#define glRenderbufferStorage glRenderbufferStorageEXT
+#define glDeleteRenderbuffers glDeleteRenderbuffersEXT
+#endif
+
+#endif
+
+#endif
+
 static GLint defaultFBO = -1;
+
+#if BL_FRAMEBUFFER_PATCH
+static GLint defaultFBO2 = -1;
+#endif
+
+int nvgluGetCurrFramebuffer() {
+#ifdef NANOVG_FBO_VALID
+  GLint defaultFBO;
+  glGetIntegerv(GL_FRAMEBUFFER_BINDING, &defaultFBO);
+  return defaultFBO;
+#else
+  return -1;
+#endif
+}
 
 NVGLUframebuffer* nvgluCreateFramebuffer(NVGcontext* ctx, int w, int h, int imageFlags)
 {
@@ -128,6 +174,34 @@ void nvgluBindFramebuffer(NVGLUframebuffer* fb)
 #else
 	NVG_NOTUSED(fb);
 #endif
+}
+
+#if BL_FRAMEBUFFER_PATCH
+// Manage the previous framebuffer better
+void nvgluBindFramebuffer2(NVGLUframebuffer* fb)
+{
+#ifdef NANOVG_FBO_VALID
+    if (defaultFBO2 == -1)
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &defaultFBO2);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, (fb != NULL) ? fb->fbo : defaultFBO2);
+
+    if (fb == NULL)
+    {
+        defaultFBO2 = -1;
+    }
+#else
+    NVG_NOTUSED(fb);
+#endif
+}
+#endif
+
+void nvgluReadCurrentFramebufferData(unsigned int x, unsigned int y, unsigned int w, unsigned int h, unsigned int width, unsigned int height, void* pixels)
+{
+  if(x + w <= width && y + h <= height && pixels != NULL) {
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glReadPixels(x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+  }
 }
 
 void nvgluDeleteFramebuffer(NVGLUframebuffer* fb)
